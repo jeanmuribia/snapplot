@@ -1,5 +1,6 @@
 import React, { useState } from 'react';
-import firebase from './firebase';
+import { getAuth, createUserWithEmailAndPassword } from "firebase/auth";
+import app from '../firebase';
 
 const Signup = () => {
   const [email, setEmail] = useState('');
@@ -7,7 +8,8 @@ const Signup = () => {
 
   const handleSignup = async () => {
     try {
-      await firebase.auth().createUserWithEmailAndPassword(email, password);
+      const auth = getAuth(app);
+      await createUserWithEmailAndPassword(auth, email, password);
       // Navigate to the dashboard or do something else upon successful signup
     } catch (error) {
       console.error('Error signing up:', error.message);

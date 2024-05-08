@@ -1,14 +1,18 @@
 import React, { useState } from 'react';
-import firebase from '../firebase';
+import { getAuth, signInWithEmailAndPassword } from "firebase/auth";
+import app from '../firebase';
+import { useNavigate } from 'react-router-dom';
 
 const Login = () => {
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
+  const navigate = useNavigate();
 
   const handleLogin = async () => {
     try {
-      await firebase.auth().signInWithEmailAndPassword(email, password);
-      // Navigate to the dashboard or do something else upon successful login
+      const auth = getAuth(app);
+      await signInWithEmailAndPassword(auth, email, password);
+      navigate('/dashboard'); // Navigate to the dashboard upon successful login
     } catch (error) {
       console.error('Error logging in:', error.message);
     }
