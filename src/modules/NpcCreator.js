@@ -1,14 +1,37 @@
 import React, { useState } from 'react';
+import { collection, addDoc } from "firebase/firestore";
+import firebaseExports from "../firebase"; // Import the firebaseExports object
 
 const NpcCreator = () => {
   const [name, setName] = useState('');
   const [description, setDescription] = useState('');
+  
 
-  const handleSubmit = (event) => {
+  const handleSubmit = async (event) => {
     event.preventDefault();
-    // Here you can handle the submission of the form, for example, by sending the data to a server or updating your state
-    console.log('Name:', name);
-    console.log('Description:', description);
+    
+    try {
+      const userId = firebaseExports.auth.currentUser ? firebaseExports.auth.currentUser.uid : null;
+      console.log("Current User ID:", userId);
+
+    if (!userId) {
+      console.error("No user is logged in or the user ID could not be retrieved.");
+     return;
+      }
+      const npcRef = collection(firebaseExports.firestore, `users/${userId}/npcs`); // Chemin de la sous-collection spécifique à l'utilisateur
+      await addDoc(npcRef, {
+        name: name,
+        description: description
+      });
+  
+      // Reset the name and description fields after adding the NPC
+      setName('');
+      setDescription('');
+      
+      console.log('NPC created successfully!');
+    } catch (error) {
+      console.error('Error creating NPC:', error.message);
+    }
   };
 
   return (

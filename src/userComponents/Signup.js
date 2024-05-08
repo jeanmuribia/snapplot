@@ -1,17 +1,14 @@
-import React, { useState } from 'react';
-import { getAuth, createUserWithEmailAndPassword, signInAnonymously } from "firebase/auth";
-import { useNavigate } from 'react-router-dom';
-import { collection, addDoc } from "firebase/firestore";
+import { getAuth, createUserWithEmailAndPassword } from "firebase/auth";
+import { doc, setDoc, getFirestore } from "firebase/firestore";
 import firebaseExports from '../firebase';
-import { useLocation } from 'react-router-dom';
-
+import { useNavigate, useLocation } from 'react-router-dom';
+import React, { useState } from 'react';
 
 const Signup = () => {
   const location = useLocation();
   const queryParams = new URLSearchParams(location.search);
   const defaultEmail = queryParams.get('email') || '';
   const defaultPassword = queryParams.get('password') || '';
-
   const [email, setEmail] = useState(defaultEmail);
   const [password, setPassword] = useState(defaultPassword);
   const [confirmPassword, setConfirmPassword] = useState('');
@@ -20,16 +17,16 @@ const Signup = () => {
   const [gender, setGender] = useState('');
   const navigate = useNavigate();
 
-
   const handleSignup = async () => {
-    try {
-      if (!email || !password || !confirmPassword || !username || !age || !gender) {
-        console.error("All fields are required");
-        return;
-      }
+    if (!email || !password || password !== confirmPassword || !username || !age || !gender) {
+      console.error("All fields are required and passwords must match");
+      return;
+    }
 
-      const { firebase, firestore } = firebaseExports;
+    try {
+      const { firebase } = firebaseExports;
       const auth = getAuth(firebase);
+      const firestore = getFirestore(firebase);
 
       // Create a new user account with email and password
       const userCredential = await createUserWithEmailAndPassword(auth, email, password);
@@ -39,9 +36,9 @@ const Signup = () => {
 
       const usernameLowerCase = username.toLowerCase();
 
-      // Add user data to Firestore
+      // Add user data to Firestore using userId as the document ID
+      const userDocRef = doc(firestore, "users", userId);
       const userData = {
-        userId: userId,
         email: email,
         username: username,
         usernameLowerCase: usernameLowerCase,
@@ -49,8 +46,7 @@ const Signup = () => {
         gender: gender,
         // Add other user data fields here
       };
-      await addDoc(collection(firestore, "users"), userData);
-      
+      await setDoc(userDocRef, userData);
 
       // Navigate to the dashboard or other appropriate page after successful signup
       navigate('/SuccessPage');
@@ -62,40 +58,12 @@ const Signup = () => {
   return (
     <div>
       <h2>Signup</h2>
-      <input
-        type="email"
-        placeholder="Email"
-        value={email}
-        onChange={(e) => setEmail(e.target.value)}
-      />
-      <input
-        type="password"
-        placeholder="Password"
-        value={password}
-        onChange={(e) => setPassword(e.target.value)}
-      />
-      <input
-        type="password"
-        placeholder="Confirm Password"
-        value={confirmPassword}
-        onChange={(e) => setConfirmPassword(e.target.value)}
-      />
-      <input
-        type="text"
-        placeholder="Username"
-        value={username}
-        onChange={(e) => setUsername(e.target.value)}
-      />
-      <input
-        type="number"
-        placeholder="Age"
-        value={age}
-        onChange={(e) => setAge(e.target.value)}
-      />
-      <select
-        value={gender}
-        onChange={(e) => setGender(e.target.value)}
-      >
+      <input type="email" placeholder="Email" value={email} onChange={(e) => setEmail(e.target.value)} />
+      <input type="password" placeholder="Password" value={password} onChange={(e) => setPassword(e.target.value)} />
+      <input type="password" placeholder="Confirm Password" value={confirmPassword} onChange={(e) => setConfirmPassword(e.target.value)} />
+      <input type="text" placeholder="Username" value={username} onChange={(e) => setUsername(e.target.value)} />
+      <input type="number" placeholder="Age" value={age} onChange={(e) => setAge(e.target.value)} />
+      <select value={gender} onChange={(e) => setGender(e.target.value)}>
         <option value="">Select Gender</option>
         <option value="male">Male</option>
         <option value="female">Female</option>
