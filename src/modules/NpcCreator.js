@@ -1,6 +1,6 @@
 import React, { useState } from 'react';
 import { collection, addDoc } from "firebase/firestore";
-import firebaseExports from "../firebase"; // Import the firebaseExports object
+import firebaseExports from "../firebase"; // I
 
 const NpcCreator = () => {
   const [name, setName] = useState('');
