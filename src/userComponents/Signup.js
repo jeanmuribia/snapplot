@@ -1,8 +1,10 @@
 import React, { useState } from 'react';
-import { getAuth, createUserWithEmailAndPassword } from "firebase/auth";
+import { getAuth, createUserWithEmailAndPassword, signInAnonymously } from "firebase/auth";
+import { useNavigate } from 'react-router-dom';
 import { collection, addDoc } from "firebase/firestore";
 import firebaseExports from '../firebase';
 import { useLocation } from 'react-router-dom';
+
 
 const Signup = () => {
   const location = useLocation();
@@ -16,40 +18,42 @@ const Signup = () => {
   const [username, setUsername] = useState('');
   const [age, setAge] = useState('');
   const [gender, setGender] = useState('');
+  const navigate = useNavigate();
+
 
   const handleSignup = async () => {
     try {
-      
       if (!email || !password || !confirmPassword || !username || !age || !gender) {
         console.error("All fields are required");
         return;
-      }// Création d'une instance d'authentification Firebase
+      }
+
       const { firebase, firestore } = firebaseExports;
       const auth = getAuth(firebase);
 
-      // Vérification si les mots de passe correspondent
-      if (password !== confirmPassword) {
-        console.error("Passwords do not match");
-        return;
-      }
-
-      // Création de l'utilisateur avec l'email et le mot de passe
+      // Create a new user account with email and password
       const userCredential = await createUserWithEmailAndPassword(auth, email, password);
 
-      // Ajout d'un document utilisateur dans Firestore avec l'ID utilisateur authentifié
+      // Get the UID from the user credential
+      const userId = userCredential.user.uid;
+
+      const usernameLowerCase = username.toLowerCase();
+
+      // Add user data to Firestore
       const userData = {
-        userId: userCredential.user.uid,
+        userId: userId,
         email: email,
         username: username,
+        usernameLowerCase: usernameLowerCase,
         age: age,
         gender: gender,
-        // Ajoutez d'autres champs utilisateur ici
+        // Add other user data fields here
       };
-
-      // Ajout du document à la collection "users"
       await addDoc(collection(firestore, "users"), userData);
+      
 
-      // Navigation vers le tableau de bord ou toute autre action après l'inscription réussie
+      // Navigate to the dashboard or other appropriate page after successful signup
+      navigate('/SuccessPage');
     } catch (error) {
       console.error('Error signing up:', error.message);
     }
