@@ -1,7 +1,7 @@
 import React, { useState, useEffect } from 'react';
 import Modal from 'react-modal';
 import firebaseExports from '../firebase'; // Adjust this path to where your firebaseExports is located
-import { doc, updateDoc, deleteDoc, collection, addDoc, onSnapshot, getDoc } from "firebase/firestore";
+import { doc, updateDoc, deleteDoc, collection, addDoc, onSnapshot, getDoc, getDocs } from "firebase/firestore";
 
 Modal.setAppElement('#root');
 
@@ -39,31 +39,42 @@ const WorldbuilderDashboard = () => {
     const [selectedProject, setSelectedProject] = useState(null);
     const [error, setError] = useState('');
     const [projects, setProjects] = useState([]);
+    const [editorModalIsOpen, setEditorModalIsOpen] = useState(false); // State for editor modal
+    const [newEditorEmail, setNewEditorEmail] = useState(''); // State for new editor email
 
     // Destructure the needed Firebase services
     const { auth, firestore } = firebaseExports;
 
-    // Fetch projects from Firestore on component mount
     useEffect(() => {
-        const fetchProjects = async () => {
+        const fetchData = async () => {
             try {
-                const userId = auth.currentUser.uid;
-                const userSetupsRef = collection(firestore, "users", userId, "setups");
-                const unsubscribe = onSnapshot(userSetupsRef, (querySnapshot) => {
-                    const projectsData = [];
-                    querySnapshot.forEach((doc) => {
-                        projectsData.push({ id: doc.id, ...doc.data() });
-                    });
-                    setProjects(projectsData);
-                });
-                return unsubscribe;
+                // Vérifiez s'il y a des données sauvegardées dans le stockage local
+                const savedProjects = JSON.parse(localStorage.getItem('projects'));
+                if (savedProjects) {
+                    setProjects(savedProjects);
+                } else {
+                    const user = auth.currentUser;
+                    if (user) {
+                        const userId = user.uid;
+                        const userSetupsRef = collection(firestore, "users", userId, "setups");
+                        const querySnapshot = await getDocs(userSetupsRef);
+                        const projectsData = [];
+                        querySnapshot.forEach((doc) => {
+                            projectsData.push({ id: doc.id, ...doc.data() });
+                        });
+                        setProjects(projectsData);
+    
+                        // Sauvegardez les données dans le stockage local
+                        localStorage.setItem('projects', JSON.stringify(projectsData));
+                    }
+                }
             } catch (error) {
                 console.error("Error fetching projects: ", error);
                 setError("Error fetching projects");
             }
         };
-
-        fetchProjects();
+    
+        fetchData();
     }, [auth.currentUser, firestore]);
 
     // Function to open the create modal
@@ -87,6 +98,17 @@ const WorldbuilderDashboard = () => {
     const closeEditModal = () => {
         setError('');
         setEditModalIsOpen(false);
+    };
+
+    // Function to open the editor modal
+    const openEditorModal = () => {
+        setEditorModalIsOpen(true);
+    };
+
+    // Function to close the editor modal
+    const closeEditorModal = () => {
+        setNewEditorEmail(''); // Reset new editor email input
+        setEditorModalIsOpen(false);
     };
 
     // Function to save changes
@@ -141,6 +163,28 @@ const WorldbuilderDashboard = () => {
             console.error("Error removing document: ", error);
             setError("Error removing document");
         }
+    };
+
+    // Function to add a new editor
+    const handleAddEditor = async () => {
+        try {
+            // Add new editor to the selected project
+            const projectRef = doc(firestore, "users", auth.currentUser.uid, "setups", selectedProject.id);
+            await updateDoc(projectRef, {
+                setupEditors: [...selectedProject.setupEditors, newEditorEmail],
+            });
+            console.log("Editor added successfully");
+            setNewEditorEmail('');
+            closeEditorModal();
+        } catch (error) {
+            console.error("Error adding editor: ", error);
+            setError("Error adding editor");
+        }
+    };
+
+    // Function to handle changes in the new editor email input
+    const handleNewEditorEmailChange = (e) => {
+        setNewEditorEmail(e.target.value);
     };
 
     // Function to create a new setup
@@ -281,6 +325,25 @@ const WorldbuilderDashboard = () => {
                 <button onClick={closeEditModal}>Cancel</button>
                 <button onClick={handleDuplicateSetup}>Duplicate</button>
                 <button onClick={handleRemoveSetup}>Remove</button>
+                <button onClick={openEditorModal}>Add Editor</button> {/* Button to open editor modal */}
+            </Modal>
+            <Modal
+                isOpen={editorModalIsOpen}
+                onRequestClose={closeEditorModal}
+                style={{
+                    // Style for editor modal
+                }}
+            >
+                <h2>Add Editor</h2>
+                {error && <p style={{ color: 'red' }}>{error}</p>}
+                <div>
+                    <label>
+                        New Editor Email:
+                        <input type="text" value={newEditorEmail} onChange={handleNewEditorEmailChange} />
+                    </label>
+                </div>
+                <button onClick={handleAddEditor}>Add Editor</button>
+                <button onClick={closeEditorModal}>Cancel</button>
             </Modal>
             <div>
                 <h2>Projects</h2>
