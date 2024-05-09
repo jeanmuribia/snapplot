@@ -1,7 +1,7 @@
 import React, { useState, useEffect } from 'react';
 import Modal from 'react-modal';
 import firebaseExports from '../firebase'; // Adjust this path to where your firebaseExports is located
-import { doc, updateDoc, deleteDoc, collection, addDoc, onSnapshot } from "firebase/firestore";
+import { doc, updateDoc, deleteDoc, collection, addDoc, onSnapshot, getDoc } from "firebase/firestore";
 
 Modal.setAppElement('#root');
 
@@ -116,6 +116,7 @@ const WorldbuilderDashboard = () => {
                 setupTemplate: selectedProject.setupTemplate,
                 setupDescription: selectedProject.setupDescription,
                 setupOwnerName: selectedProject.setupOwnerName,
+                setupOwnerId: auth.currentUser.uid,
                 setupEditors: selectedProject.setupEditors,
             };
             const userSetupsRef = collection(firestore, "users", auth.currentUser.uid, "setups");
@@ -145,14 +146,25 @@ const WorldbuilderDashboard = () => {
     // Function to create a new setup
     const handleCreateSetup = async () => {
         try {
+            // Get the current user's username
+            const currentUser = auth.currentUser;
+            const currentUserDocRef = doc(firestore, "users", currentUser.uid);
+            const currentUserDocSnap = await getDoc(currentUserDocRef);
+            const currentUserData = currentUserDocSnap.data();
+            const ownerName = currentUserData.username;
+    
+            // Create a new setup object with the necessary fields
             const newSetup = {
                 setupName: editedSetupName.value,
                 setupTemplate: editedSetupTemplate.value,
                 setupDescription: editedSetupDescription.value,
-                setupOwnerName: auth.currentUser.displayName, // Assuming you have the user's display name
+                setupOwnerId: currentUser.uid, // Firebase Authentication user ID of the owner
+                setupOwnerName: ownerName, // Username of the owner
                 setupEditors: [], // Assuming initial setup has no editors
             };
-            const userSetupsRef = collection(firestore, "users", auth.currentUser.uid, "setups");
+    
+            // Add the new setup document to Firestore
+            const userSetupsRef = collection(firestore, "users", currentUser.uid, "setups");
             await addDoc(userSetupsRef, newSetup);
             console.log("Document created successfully");
             closeCreateModal();
