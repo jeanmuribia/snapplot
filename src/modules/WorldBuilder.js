@@ -1,11 +1,26 @@
 import React, { useState, useEffect } from 'react';
 import Modal from 'react-modal';
 import firebaseExports from '../firebase'; // Adjust this path to where your firebaseExports is located
-import { doc, updateDoc, deleteDoc, collection, addDoc, onSnapshot, getDoc, getDocs } from "firebase/firestore";
+import { doc, updateDoc, deleteDoc, collection, addDoc, onSnapshot, getDoc } from "firebase/firestore";
 
 Modal.setAppElement('#root');
 
-const useEditableField = (initialValue) => {
+const generateUniqueName = (name, projects) => {
+    if (!name.trim()) return { valid: false, newName: '' }; // Check if name is not just empty spaces
+
+    let newName = name;
+    let counter = 1;
+
+    // Check if the name exists and generate a new name with a counter
+    while (projects.some(project => project.setupName === newName)) {
+        newName = `${name}(${counter})`;
+        counter++;
+    }
+
+    return { valid: true, newName };
+};
+
+const useEditableField = (initialValue, validationRule = () => true) => {
     const [value, setValue] = useState(initialValue);
     const [isEditing, setIsEditing] = useState(false);
 
@@ -15,7 +30,11 @@ const useEditableField = (initialValue) => {
 
     const handleSave = () => {
         setIsEditing(false);
-        setValue(value); // Update the value in state
+        if (!validationRule(value)) {
+            console.error('Validation failed');
+            return;
+        }
+        setValue(value ? value.trim() : ''); // Update the value in state after trimming, handle null values
     };
 
     const handleCancel = () => {
@@ -33,88 +52,68 @@ const useEditableField = (initialValue) => {
 };
 
 const WorldbuilderDashboard = () => {
-    // Define state variables
     const [createModalIsOpen, setCreateModalIsOpen] = useState(false);
     const [editModalIsOpen, setEditModalIsOpen] = useState(false);
     const [selectedProject, setSelectedProject] = useState(null);
     const [error, setError] = useState('');
     const [projects, setProjects] = useState([]);
-    const [editorModalIsOpen, setEditorModalIsOpen] = useState(false); // State for editor modal
-    const [newEditorEmail, setNewEditorEmail] = useState(''); // State for new editor email
+    const [editorModalIsOpen, setEditorModalIsOpen] = useState(false);
+    const [newEditorEmail, setNewEditorEmail] = useState('');
 
-    // Destructure the needed Firebase services
     const { auth, firestore } = firebaseExports;
 
     useEffect(() => {
-        const fetchData = async () => {
-            try {
-                // Vérifiez s'il y a des données sauvegardées dans le stockage local
-                const savedProjects = JSON.parse(localStorage.getItem('projects'));
-                if (savedProjects) {
-                    setProjects(savedProjects);
-                } else {
-                    const user = auth.currentUser;
-                    if (user) {
-                        const userId = user.uid;
-                        const userSetupsRef = collection(firestore, "users", userId, "setups");
-                        const querySnapshot = await getDocs(userSetupsRef);
-                        const projectsData = [];
-                        querySnapshot.forEach((doc) => {
-                            projectsData.push({ id: doc.id, ...doc.data() });
-                        });
-                        setProjects(projectsData);
-    
-                        // Sauvegardez les données dans le stockage local
-                        localStorage.setItem('projects', JSON.stringify(projectsData));
-                    }
-                }
-            } catch (error) {
-                console.error("Error fetching projects: ", error);
-                setError("Error fetching projects");
-            }
-        };
-    
-        fetchData();
+        if (!auth.currentUser) return;
+
+        const userId = auth.currentUser.uid;
+        const userSetupsRef = collection(firestore, "users", userId, "setups");
+
+        const unsubscribe = onSnapshot(userSetupsRef, (querySnapshot) => {
+            const projectsData = [];
+            querySnapshot.forEach((doc) => {
+                projectsData.push({ id: doc.id, ...doc.data() });
+            });
+            setProjects(projectsData);
+            localStorage.setItem('projects', JSON.stringify(projectsData));
+        }, (error) => {
+            console.error("Error fetching projects: ", error);
+            setError("Error fetching projects");
+        });
+
+        return () => unsubscribe();
     }, [auth.currentUser, firestore]);
 
-    // Function to open the create modal
     const openCreateModal = () => {
         setCreateModalIsOpen(true);
     };
 
-    // Function to close the create modal
     const closeCreateModal = () => {
         setError('');
         setCreateModalIsOpen(false);
     };
 
-    // Function to open the edit modal
     const openEditModal = (project) => {
         setSelectedProject(project);
         setEditModalIsOpen(true);
     };
 
-    // Function to close the edit modal
     const closeEditModal = () => {
         setError('');
         setEditModalIsOpen(false);
+        setSelectedProject(null); // Reset selected project
     };
 
-    // Function to open the editor modal
     const openEditorModal = () => {
         setEditorModalIsOpen(true);
     };
 
-    // Function to close the editor modal
     const closeEditorModal = () => {
-        setNewEditorEmail(''); // Reset new editor email input
+        setNewEditorEmail('');
         setEditorModalIsOpen(false);
     };
 
-    // Function to save changes
     const handleSaveChanges = async () => {
         try {
-            // Update the project in Firestore
             const projectRef = doc(firestore, "users", auth.currentUser.uid, "setups", selectedProject.id);
             await updateDoc(projectRef, {
                 setupName: editedSetupName.value,
@@ -129,32 +128,90 @@ const WorldbuilderDashboard = () => {
         }
     };
 
-    // Function to duplicate the setup
-    const handleDuplicateSetup = async () => {
+    const handleCreateSetup = async () => {
+        if (!editedSetupName.value.trim()) {
+            setError('Setup name cannot be empty');
+            return;
+        }
+    
+        const { valid, newName } = generateUniqueName(editedSetupName.value, projects);
+        if (!valid) {
+            setError('Setup name already exists');
+            return;
+        }
+    
         try {
-            // Duplicate the selected project
+            // Fetch user's username from the database
+            const userRef = doc(firestore, "users", auth.currentUser.uid);
+            const userDoc = await getDoc(userRef);
+            const username = userDoc.data().username;
+    
             const newSetup = {
-                setupName: `${selectedProject.setupName} - Copy`,
-                setupTemplate: selectedProject.setupTemplate,
-                setupDescription: selectedProject.setupDescription,
-                setupOwnerName: selectedProject.setupOwnerName,
+                setupName: newName,
+                setupTemplate: editedSetupTemplate.value,
+                setupDescription: editedSetupDescription.value,
                 setupOwnerId: auth.currentUser.uid,
-                setupEditors: selectedProject.setupEditors,
+                setupOwnerName: username, // Set user's username as setupOwnerName
+                setupEditors: [],
             };
             const userSetupsRef = collection(firestore, "users", auth.currentUser.uid, "setups");
             await addDoc(userSetupsRef, newSetup);
-            console.log("Document duplicated successfully");
-            closeEditModal();
+            console.log("Document created successfully");
+            closeCreateModal();
         } catch (error) {
-            console.error("Error duplicating document: ", error);
-            setError("Error duplicating document");
+            console.error("Error creating document: ", error);
+            setError("Error creating document");
         }
     };
 
-    // Function to remove the setup
-    const handleRemoveSetup = async () => {
+    const handleDuplicateSetup = async () => {
+        if (!selectedProject) {
+            console.error('No project selected for duplication');
+            return;
+        }
+    
+        // Check if all necessary fields are present
+        if (!selectedProject.setupName || !selectedProject.setupTemplate || !selectedProject.setupDescription) {
+            console.error('Selected project data is incomplete');
+            return;
+        }
+    
+        const newName = selectedProject.setupName + ' (Copy)';
+        console.log('New name:', newName);
+    
+        const { valid, uniqueName } = generateUniqueName(newName, projects);
+        console.log('Valid:', valid, 'Unique name:', uniqueName);
+    
+        if (!valid) {
+            setError('Duplicate name already exists');
+            return;
+        }
+    
         try {
-            // Delete the selected project
+            const newSetup = {
+                setupName: uniqueName,
+                setupTemplate: selectedProject.setupTemplate,
+                setupDescription: selectedProject.setupDescription,
+                setupOwnerId: auth.currentUser.uid,
+                setupOwnerName: "Current User", // Placeholder, replace with actual user name if available
+                setupEditors: [],
+            };
+            console.log('New setup:', newSetup);
+    
+            const userSetupsRef = collection(firestore, "users", auth.currentUser.uid, "setups");
+            await addDoc(userSetupsRef, newSetup);
+            console.log("Setup duplicated successfully");
+            closeEditModal();
+        } catch (error) {
+            console.error("Error duplicating setup: ", error);
+            setError("Error duplicating setup");
+        }
+    };
+
+    const handleRemoveSetup = async () => {
+        if (!selectedProject) return;
+
+        try {
             const projectRef = doc(firestore, "users", auth.currentUser.uid, "setups", selectedProject.id);
             await deleteDoc(projectRef);
             console.log("Document removed successfully");
@@ -165,60 +222,7 @@ const WorldbuilderDashboard = () => {
         }
     };
 
-    // Function to add a new editor
-    const handleAddEditor = async () => {
-        try {
-            // Add new editor to the selected project
-            const projectRef = doc(firestore, "users", auth.currentUser.uid, "setups", selectedProject.id);
-            await updateDoc(projectRef, {
-                setupEditors: [...selectedProject.setupEditors, newEditorEmail],
-            });
-            console.log("Editor added successfully");
-            setNewEditorEmail('');
-            closeEditorModal();
-        } catch (error) {
-            console.error("Error adding editor: ", error);
-            setError("Error adding editor");
-        }
-    };
-
-    // Function to handle changes in the new editor email input
-    const handleNewEditorEmailChange = (e) => {
-        setNewEditorEmail(e.target.value);
-    };
-
-    // Function to create a new setup
-    const handleCreateSetup = async () => {
-        try {
-            // Get the current user's username
-            const currentUser = auth.currentUser;
-            const currentUserDocRef = doc(firestore, "users", currentUser.uid);
-            const currentUserDocSnap = await getDoc(currentUserDocRef);
-            const currentUserData = currentUserDocSnap.data();
-            const ownerName = currentUserData.username;
-    
-            // Create a new setup object with the necessary fields
-            const newSetup = {
-                setupName: editedSetupName.value,
-                setupTemplate: editedSetupTemplate.value,
-                setupDescription: editedSetupDescription.value,
-                setupOwnerId: currentUser.uid, // Firebase Authentication user ID of the owner
-                setupOwnerName: ownerName, // Username of the owner
-                setupEditors: [], // Assuming initial setup has no editors
-            };
-    
-            // Add the new setup document to Firestore
-            const userSetupsRef = collection(firestore, "users", currentUser.uid, "setups");
-            await addDoc(userSetupsRef, newSetup);
-            console.log("Document created successfully");
-            closeCreateModal();
-        } catch (error) {
-            console.error("Error creating document: ", error);
-            setError("Error creating document");
-        }
-    };
-
-    const editedSetupName = useEditableField('');
+    const editedSetupName = useEditableField('', (value) => !!value); // Validation rule to prevent empty setup name
     const editedSetupTemplate = useEditableField('');
     const editedSetupDescription = useEditableField('');
 
@@ -226,24 +230,26 @@ const WorldbuilderDashboard = () => {
         <div>
             <h1>Worldbuilder Dashboard</h1>
             <button onClick={openCreateModal}>Create Setup</button>
+            <h2>Setups</h2>
+            <div>
+                {projects.map(project => (
+                    <p key={project.id} onClick={() => openEditModal(project)} style={{ cursor: 'pointer' }}>
+                        {project.setupName}
+                    </p>
+                ))}
+            </div>
             <Modal
                 isOpen={createModalIsOpen}
                 onRequestClose={closeCreateModal}
-                style={{
-                    // Style for create setup modal
-                }}
+                style={{ content: { top: '50%', left: '50%', right: 'auto', bottom: 'auto', marginRight: '-50%', transform: 'translate(-50%, -50%)' } }}
             >
                 <h2>Create Setup</h2>
                 {error && <p style={{ color: 'red' }}>{error}</p>}
                 <div>
-                    <label>
-                        Setup Name:
+                    <label>Setup Name:
                         <input type="text" value={editedSetupName.value} onChange={(e) => editedSetupName.setValue(e.target.value)} />
                     </label>
-                </div>
-                <div>
-                    <label>
-                        Setup Template:
+                    <label>Setup Template:
                         <select value={editedSetupTemplate.value} onChange={(e) => editedSetupTemplate.setValue(e.target.value)}>
                             <option value="">Select a template</option>
                             <option value="template1">Template 1</option>
@@ -251,108 +257,50 @@ const WorldbuilderDashboard = () => {
                             <option value="template3">Template 3</option>
                         </select>
                     </label>
-                </div>
-                <div>
-                    <label>
-                        Setup Description:
+                    <label>Setup Description:
                         <textarea value={editedSetupDescription.value} onChange={(e) => editedSetupDescription.setValue(e.target.value)} />
                     </label>
+                    <button onClick={handleCreateSetup}>Create</button>
+                    <button onClick={closeCreateModal}>Cancel</button>
                 </div>
-                <button onClick={handleCreateSetup}>Create</button>
-                <button onClick={closeCreateModal}>Cancel</button>
             </Modal>
             <Modal
                 isOpen={editModalIsOpen}
                 onRequestClose={closeEditModal}
-                style={{
-                    // Style for edit modal
-                }}
+                style={{ content: { top: '50%', left: '50%', right: 'auto', bottom: 'auto', marginRight: '-50%', transform: 'translate(-50%, -50%)' } }}
             >
-                <h2>Edit Project</h2>
+                <h2>Edit Setup</h2>
                 {error && <p style={{ color: 'red' }}>{error}</p>}
-                <div>
-                    <label>
-                        Setup Name:
-                        {editedSetupName.isEditing ? (
-                            <div>
-                                <input type="text" value={editedSetupName.value} onChange={(e) => editedSetupName.setValue(e.target.value)} />
-                                <button onClick={editedSetupName.handleSave}>Save</button>
-                                <button onClick={editedSetupName.handleCancel}>Cancel</button>
+                <div style={{ display: 'flex', flexDirection: 'column' }}>
+                    {selectedProject && (
+                        <div style={{ display: 'flex', flexDirection: 'column' }}>
+                            {editedSetupName.isEditing ? (
+                                <input type="text" value={editedSetupName.value} onChange={(e) => editedSetupName.setValue(e.target.value)} onBlur={editedSetupName.handleSave} autoFocus />
+                            ) : (
+                                <p onClick={editedSetupName.handleEdit}>{selectedProject.setupName}</p>
+                            )}
+                            {editedSetupTemplate.isEditing ? (
+                                <input type="text" value={editedSetupTemplate.value} onChange={(e) => editedSetupTemplate.setValue(e.target.value)} onBlur={editedSetupTemplate.handleSave} />
+                            ) : (
+                                <p onClick={editedSetupTemplate.handleEdit}>{selectedProject.setupTemplate}</p>
+                            )}
+                            {editedSetupDescription.isEditing ? (
+                                <textarea value={editedSetupDescription.value} onChange={(e) => editedSetupDescription.setValue(e.target.value)} onBlur={editedSetupDescription.handleSave} />
+                            ) : (
+                                <p onClick={editedSetupDescription.handleEdit}>{selectedProject.setupDescription}</p>
+                            )}
+                            <div style={{ display: 'flex', justifyContent: 'space-between', marginTop: '1rem' }}>
+                                <button onClick={handleSaveChanges}>Save</button>
+                                <div>
+                                    <button onClick={handleDuplicateSetup}>Duplicate</button>
+                                    <button onClick={handleRemoveSetup}>Remove</button>
+                                </div>
+                                <button onClick={closeEditModal}>Cancel</button>
                             </div>
-                        ) : (
-                            <div>
-                                {editedSetupName.value}
-                                <button onClick={editedSetupName.handleEdit}>Edit</button>
-                            </div>
-                        )}
-                    </label>
+                        </div>
+                    )}
                 </div>
-                <div>
-                    <label>
-                        Setup Template:
-                        {editedSetupTemplate.isEditing ? (
-                            <div>
-                                <input type="text" value={editedSetupTemplate.value} onChange={(e) => editedSetupTemplate.setValue(e.target.value)} />
-                                <button onClick={editedSetupTemplate.handleSave}>Save</button>
-                                <button onClick={editedSetupTemplate.handleCancel}>Cancel</button>
-                            </div>
-                        ) : (
-                            <div>
-                                {editedSetupTemplate.value}
-                                <button onClick={editedSetupTemplate.handleEdit}>Edit</button>
-                            </div>
-                        )}
-                    </label>
-                </div>
-                <div>
-                    <label>
-                        Setup Description:
-                        {editedSetupDescription.isEditing ? (
-                            <div>
-                                <textarea value={editedSetupDescription.value} onChange={(e) => editedSetupDescription.setValue(e.target.value)} />
-                                <button onClick={editedSetupDescription.handleSave}>Save</button>
-                                <button onClick={editedSetupDescription.handleCancel}>Cancel</button>
-                            </div>
-                        ) : (
-                            <div>
-                                {editedSetupDescription.value}
-                                <button onClick={editedSetupDescription.handleEdit}>Edit</button>
-                            </div>
-                        )}
-                    </label>
-                </div>
-                <button onClick={handleSaveChanges}>Save</button>
-                <button onClick={closeEditModal}>Cancel</button>
-                <button onClick={handleDuplicateSetup}>Duplicate</button>
-                <button onClick={handleRemoveSetup}>Remove</button>
-                <button onClick={openEditorModal}>Add Editor</button> {/* Button to open editor modal */}
             </Modal>
-            <Modal
-                isOpen={editorModalIsOpen}
-                onRequestClose={closeEditorModal}
-                style={{
-                    // Style for editor modal
-                }}
-            >
-                <h2>Add Editor</h2>
-                {error && <p style={{ color: 'red' }}>{error}</p>}
-                <div>
-                    <label>
-                        New Editor Email:
-                        <input type="text" value={newEditorEmail} onChange={handleNewEditorEmailChange} />
-                    </label>
-                </div>
-                <button onClick={handleAddEditor}>Add Editor</button>
-                <button onClick={closeEditorModal}>Cancel</button>
-            </Modal>
-            <div>
-                <h2>Projects</h2>
-                <ul>
-                    {projects.map(project => (
-                        <li key={project.id} onClick={() => openEditModal(project)}>{project.setupName}</li>
-                    ))}
-                </ul>
-            </div>
         </div>
     );
 };
